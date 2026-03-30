@@ -1,347 +1,129 @@
-# Lookup Service - Level 2
+# Credit Data Lookup Service
 
-Below, you'll find the instructions for getting started with your task. Please read them carefully to avoid unexpected issues. Best of luck!
+A RESTful backend service that aggregates credit data from multiple upstream API endpoints and serves it through a unified interface with SQLite caching.
 
-## Time estimate
+## Overview
 
-Between 2 and 3 hours, plus the time to set up the codebase.
+This service acts as an aggregation layer between clients and a Credit Data API. For a given SSN, it fetches personal details, debt information, and assessed income from three separate endpoints, merges them into a single response, and caches the result in a local SQLite database so that subsequent requests are served instantly without hitting the upstream API again.
 
-## Mandatory steps before you get started
+## Architecture
 
-1. You should already have your project setup from the coding test start page but if not check out [this guide here](https://help.alvalabs.io/en/articles/9028914-how-to-set-up-the-codebase-for-your-coding-test) for more information.
-2. Learn [how to get help](https://help.alvalabs.io/en/articles/9028899-how-to-ask-for-help-with-coding-tests) if you run into an issue with your coding test.
+```
+Client Request
+      │
+      ▼
+┌─────────────┐
+│   Express    │  ← routes.js
+│   Router     │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐     ┌──────────┐
+│   Service    │────▶│  SQLite   │  cache hit → return immediately
+│    Layer     │     │   Cache   │
+└──────┬──────┘     └──────────┘
+       │ cache miss
+       ▼
+┌─────────────┐     ┌──────────────────────┐
+│  API Client  │────▶│  Credit Data REST API │
+│  (3 parallel │     │  (external service)   │
+│   requests)  │     └──────────────────────┘
+└─────────────┘
+```
 
+### Project Structure
 
-## The task
+```
+src/
+├── server.js              # Entrypoint — starts Express on port 8080
+├── app.js                 # Express app setup (separated for testability)
+├── routes.js              # GET /ping and GET /credit-data/:ssn
+├── creditDataService.js   # Orchestrates cache lookup → API fetch → store
+├── creditDataClient.js    # Axios client for the 3 upstream API endpoints
+└── db.js                  # SQLite caching layer (better-sqlite3)
 
-<!--TASK_INSTRUCTIONS_START-->
+__tests__/
+└── creditDataService.test.js   # Unit tests with mocked dependencies
+```
 
-Your task is to build a backend service that implements the [Lookup Service REST API](https://coding-test-api.alvalabs.io/lookup/api) and integrates with the [Credit Data REST API](https://coding-test-api.alvalabs.io/credit-data/api) to aggregate historical credit data.
+## API Endpoints
 
-<details>
-<summary>Lookup Service REST API Specification</summary>
+### `GET /ping`
+
+Health check endpoint.
+
+**Response:** `200 OK`
+
+### `GET /credit-data/:ssn`
+
+Returns aggregated credit data for the given Social Security Number.
+
+**Response (200):**
 
 ```json
 {
-  "openapi": "3.0.0",
-  "info": {
-    "title": "Lookup Service API",
-    "version": "1.0.0"
-  },
-  "paths": {
-    "/ping": {
-      "get": {
-        "summary": "Healhcheck to make sure the service is up.",
-        "responses": {
-          "200": {
-            "description": "The service is up and running."
-          }
-        }
-      }
-    },
-    "/credit-data/{ssn}": {
-      "get": {
-        "summary": "Return aggregated credit data.",
-        "parameters": [
-          {
-            "name": "ssn",
-            "in": "path",
-            "required": true,
-            "description": "Social security number.",
-            "schema": {
-              "type": "string"
-            },
-            "example": "424-11-9327"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Aggregated credit data for given ssn.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CreditData"
-                },
-                "examples": {
-                  "CreditDataEmma": {
-                    "$ref": "#/components/examples/CreditDataEmma"
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Credit data not found for given ssn."
-          }
-        }
-      }
-    }
-  },
-  "components": {
-    "schemas": {
-      "CreditData": {
-        "type": "object",
-        "properties": {
-          "first_name": {
-            "type": "string"
-          },
-          "last_name": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "assessed_income": {
-            "type": "integer"
-          },
-          "balance_of_debt": {
-            "type": "integer"
-          },
-          "complaints": {
-            "type": "boolean"
-          }
-        }
-      }
-    },
-    "examples": {
-      "CreditDataEmma": {
-        "value": {
-          "first_name": "Emma",
-          "last_name": "Gautrey",
-          "address": "09 Westend Terrace",
-          "assessed_income": 60668,
-          "balance_of_debt": 11585,
-          "complaints": true
-        }
-      }
-    }
-  }
+  "first_name": "Emma",
+  "last_name": "Gautrey",
+  "address": "09 Westend Terrace",
+  "assessed_income": 60668,
+  "balance_of_debt": 11585,
+  "complaints": true
 }
 ```
-</details>
 
-<details>
-<summary>Credit Data REST API Specification</summary>
+**Response (404):** SSN not found in the upstream API.
 
-```json
-{
-  "openapi": "3.0.3",
-  "info": {
-    "title": "Credit Data API",
-    "version": "1.0.0",
-    "contact": {
+**Response (502):** Upstream API error.
 
-    }
-  },
-  "paths": {
-    "/api/credit-data/personal-details/{ssn}": {
-      "get": {
-        "operationId": "get~credit_data_api._get_personal_details",
-        "summary": "Return personal details.",
-        "tags": [
-          "credit_data_api"
-        ],
-        "parameters": [
-          {
-            "name": "ssn",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Social Security Number",
-            "required": true,
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "code": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Personal details not found for given ssn."
-          },
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "address": {
-                      "type": "string",
-                      "title": "Address"
-                    },
-                    "first_name": {
-                      "type": "string",
-                      "title": "First_Name"
-                    },
-                    "last_name": {
-                      "type": "string",
-                      "title": "Last_Name"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Personal details for given ssn."
-          }
-        }
-      }
-    },
-    "/api/credit-data/debt/{ssn}": {
-      "get": {
-        "operationId": "get~credit_data_api._get_debt",
-        "summary": "Return debt details.",
-        "tags": [
-          "credit_data_api"
-        ],
-        "parameters": [
-          {
-            "name": "ssn",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Social Security Number",
-            "required": true,
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "code": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Debt details not found for given ssn."
-          },
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "balance_of_debt": {
-                      "type": "integer",
-                      "format": "int32",
-                      "title": "Balance_Of_Debt"
-                    },
-                    "complaints": {
-                      "type": "boolean",
-                      "title": "Complaints"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Debt details for given ssn."
-          }
-        }
-      }
-    },
-    "/api/credit-data/assessed-income/{ssn}": {
-      "get": {
-        "operationId": "get~credit_data_api._get_assessed_income",
-        "summary": "Return assessed details income.",
-        "tags": [
-          "credit_data_api"
-        ],
-        "parameters": [
-          {
-            "name": "ssn",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Social Security Number",
-            "required": true,
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "code": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Assessed income not found for given ssn."
-          },
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "assessed_income": {
-                      "type": "integer",
-                      "format": "int32",
-                      "title": "Assessed_Income"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Assessed income for given ssn."
-          }
-        }
-      }
-    }
-  },
-  "servers": [
-    {
-      "url": "https://coding-test-api.alvalabs.io"
-    }
-  ]
-}
+## Design Decisions
+
+**Parallel fetching** — The three upstream API calls (personal details, debt, assessed income) are dispatched concurrently with `Promise.all`, reducing latency from ~3× sequential to ~1× round-trip.
+
+**Cache-aside pattern** — On first request for an SSN, the service fetches from the upstream API and stores the aggregated result in SQLite. All subsequent requests for the same SSN are served directly from the database, ensuring consistent responses and reducing load on the external API.
+
+**App/server separation** — `app.js` exports the Express application without starting a listener, making it easy to mount in test harnesses or alternative runtimes. `server.js` handles process lifecycle (port binding, graceful shutdown).
+
+**SQLite with WAL mode** — Write-Ahead Logging enables concurrent reads without blocking, suitable for a read-heavy caching workload.
+
+**Boolean handling** — SQLite stores booleans as integers (0/1). The DB module handles conversion transparently so the API always returns native JSON booleans.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- npm
+
+### Installation
+
+```bash
+git clone https://github.com/rafallex/lookup-service.git
+cd lookup-service
+npm install
 ```
-</details>
 
+### Running
 
-### Solution expectations
+```bash
+npm start
+# Server starts on http://localhost:8080
+```
 
-- Do your best to make the [provided E2E tests](cypress/e2e/test.cy.js) pass. Check out [this tutorial](https://help.alvalabs.io/en/articles/9028831-how-to-work-with-cypress) to learn how to execute these tests and analyze the results.
-- Implement DB caching. The first time the data is fetched from the remote API, it should be stored in an SQLite DB. All subsequent requests to fetch the same data should be served from the service’s DB.
-- Be mindful about error handling. The API tests are not restricting any particular service behaviour so it is up to you to choose a solution that feels right.
-- Avoid duplication and extract re-usable modules where it makes sense. We want to see your approach to creating a codebase that is easy to maintain.
-- Unit test one module of choice. There is no need to test the whole app, as we only want to understand what you take into consideration when writing unit tests.
+### Testing
 
-<!--TASK_INSTRUCTIONS_END-->
+```bash
+# Unit tests (Jest)
+npm run test:unit
 
-## When you are done
+# E2E tests (Cypress — requires the server to be running)
+npm start &
+npm test
+```
 
-1. [Create a new Pull Request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request) from the branch where you've committed your solution to the default branch of this repository. **Please do not merge the created Pull Request**.
-2. Go to your application in [Alva Labs](https://app.alvalabs.io) and submit your test.
+## Tech Stack
 
----
-
-Authored by [Alva Labs](https://www.alvalabs.io/).
+- **Runtime:** Node.js
+- **Framework:** Express
+- **HTTP Client:** Axios
+- **Database:** SQLite via better-sqlite3
+- **Testing:** Jest (unit), Cypress (E2E)
