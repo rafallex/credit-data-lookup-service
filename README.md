@@ -97,8 +97,8 @@ Returns aggregated credit data for the given Social Security Number.
 ### Installation
 
 ```bash
-git clone https://github.com/rafallex/lookup-service.git
-cd lookup-service
+git clone https://github.com/rafallex/credit-data-lookup-service.git
+cd credit-data-lookup-service
 npm install
 ```
 
