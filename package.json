@@ -1,12 +1,19 @@
 {
-  "name": "lookup-service-level-1",
+  "name": "lookup-service-level-2",
   "version": "1.0.0",
   "scripts": {
-    "build": "echo build your app here",
-    "start": "echo start your app here",
-    "test": "cypress run"
+    "build": "echo 'No build step required'",
+    "start": "node src/server.js",
+    "test": "cypress run",
+    "test:unit": "jest --coverage"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "better-sqlite3": "^11.7.0",
+    "express": "^4.21.0"
   },
   "devDependencies": {
-    "cypress": "^12.17.1"
+    "cypress": "^12.17.1",
+    "jest": "^29.7.0"
   }
 }

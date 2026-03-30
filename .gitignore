@@ -5,3 +5,5 @@ cypress/screenshots
 cypress/support
 
 .idea
+cache.db
+coverage/
