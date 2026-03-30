@@ -1,0 +1,12 @@
+{
+  "name": "lookup-service-level-1",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "echo build your app here",
+    "start": "echo start your app here",
+    "test": "cypress run"
+  },
+  "devDependencies": {
+    "cypress": "^12.17.1"
+  }
+}
