@@ -6,6 +6,8 @@ A RESTful backend service that aggregates credit data from multiple upstream API
 
 This service acts as an aggregation layer between clients and a Credit Data API. For a given SSN, it fetches personal details, debt information, and assessed income from three separate endpoints, merges them into a single response, and caches the result in a local SQLite database so that subsequent requests are served instantly without hitting the upstream API again.
 
+It started as a backend take-home (the "Lookup Service – Level 2" exercise), so the upstream API contract and the Cypress E2E spec in `cypress/e2e/test.cy.js` were given as the grading harness. Everything under `src/` — the service, the parallel API client, the SQLite cache layer, graceful shutdown — is my implementation, along with the Jest unit tests.
+
 ## Architecture
 
 ```
@@ -43,7 +45,10 @@ src/
 └── db.js                  # SQLite caching layer (better-sqlite3)
 
 __tests__/
-└── creditDataService.test.js   # Unit tests with mocked dependencies
+└── creditDataService.test.js   # Jest unit tests with mocked dependencies
+
+cypress/
+└── e2e/test.cy.js              # Cypress E2E spec (provided grading harness)
 ```
 
 ## API Endpoints
@@ -87,6 +92,10 @@ Returns aggregated credit data for the given Social Security Number.
 
 **Boolean handling** — SQLite stores booleans as integers (0/1). The DB module handles conversion transparently so the API always returns native JSON booleans.
 
+**Masked logging** — SSNs are sensitive, so error logs never print them in full. The route handler masks the value to `***-**-1234` (last four digits) before logging an upstream failure.
+
+**Graceful shutdown** — `server.js` listens for `SIGTERM`/`SIGINT`, stops accepting new connections, closes the SQLite handle, and falls back to a forced exit after 10 seconds if the server does not close cleanly.
+
 ## Getting Started
 
 ### Prerequisites
@@ -109,10 +118,25 @@ npm start
 # Server starts on http://localhost:8080
 ```
 
+### Configuration
+
+All settings have sensible defaults; override them via environment variables.
+
+| Variable         | Default                                | Purpose                                  |
+| ---------------- | -------------------------------------- | ---------------------------------------- |
+| `PORT`           | `8080`                                 | Port the HTTP server binds to            |
+| `CREDIT_API_URL` | `https://coding-test-api.alvalabs.io`  | Base URL of the upstream Credit Data API |
+| `DB_PATH`        | `./cache.db`                           | Path to the SQLite cache file            |
+
 ### Testing
 
+Two layers of tests:
+
+- **Unit tests (Jest)** — four tests covering the service's cache-aside logic with `db` and the API client mocked out: cache hit (no API call), cache miss (fetch then store), error propagation, and "don't cache on failure." `creditDataService.js` is at 100% statement/branch/function coverage.
+- **E2E tests (Cypress)** — six specs that hit the running server against the live upstream API: the `/ping` health check, three named SSN aggregations (Emma, Billy, Gail), a 404 for an unknown SSN, and a repeat-request check that confirms the cached response matches the first. This file is the take-home's grading spec and is left unmodified.
+
 ```bash
-# Unit tests (Jest)
+# Unit tests (Jest, with coverage)
 npm run test:unit
 
 # E2E tests (Cypress — requires the server to be running)
