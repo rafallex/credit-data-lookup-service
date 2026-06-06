@@ -1,5 +1,5 @@
 {
-  "name": "lookup-service-level-2",
+  "name": "credit-data-lookup-service",
   "version": "1.0.0",
   "scripts": {
     "build": "echo 'No build step required'",
